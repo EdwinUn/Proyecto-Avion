@@ -187,7 +187,7 @@ class VentanaAeropuerto(tk.Tk):
         ).pack(side="left")
 
         self.pista_sel = tk.IntVar(value=0)
-        opciones = ["Auto (menor espera)"] + [f"Pista {i+1}" for i in range(len(pistas))]
+        opciones = ["Auto (Round-Robin)"] + [f"Pista {i+1}" for i in range(len(pistas))]
         self.combo_pista = ttk.Combobox(
             sel_frame, textvariable=self.pista_sel,
             values=opciones, state="readonly", width=18,
@@ -283,7 +283,7 @@ class VentanaAeropuerto(tk.Tk):
         """Despega un vuelo a través del backend"""
         sel = self.combo_pista.get()
         
-        if sel == "Auto (menor espera)" or sel == "":
+        if sel == "Auto (Round-Robin)" or sel == "":
             pista_idx = None
         else:
             pista_idx = int(sel.split(" ")[1]) - 1

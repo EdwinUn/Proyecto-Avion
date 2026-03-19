@@ -76,6 +76,7 @@ class AeropuertoManager:
         ]
         self.lista_espera = []
         self.contador_vuelo = 1
+        self.contador_pista_despegue = 0  # Para Round-Robin
 
     # ── Generación de datos ────────────────
 
@@ -100,6 +101,16 @@ class AeropuertoManager:
         for p in self.pistas:
             if not p.esta_vacia():
                 return p
+        return None
+
+    def obtener_siguiente_pista_roundrobin(self) -> ColaCircular | None:
+        """Retorna la siguiente pista en Round-Robin que tenga vuelos"""
+        inicio = self.contador_pista_despegue
+        for i in range(self.NUM_PISTAS):
+            idx = (inicio + i) % self.NUM_PISTAS
+            if not self.pistas[idx].esta_vacia():
+                self.contador_pista_despegue = (idx + 1) % self.NUM_PISTAS
+                return self.pistas[idx]
         return None
 
     # ── Operaciones de vuelos ──────────────
@@ -129,8 +140,8 @@ class AeropuertoManager:
         - vuelo_que_entra_de_espera: nombre del vuelo que pasó de espera a pista (o None)
         """
         if pista_idx is None:
-            # Auto: primera pista con vuelos
-            pista = self.obtener_primera_pista_con_vuelos()
+            # Auto: Round-Robin entre pistas
+            pista = self.obtener_siguiente_pista_roundrobin()
         else:
             pista = self.pistas[pista_idx]
 
