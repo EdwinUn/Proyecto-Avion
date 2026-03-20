@@ -131,9 +131,12 @@ Este proyecto implementa y demuestra:
 - ✅ Programación concurrente con threads
 - ✅ Simulación de sistemas reales
 
-## 👤 Autor
+## � Autores
 
-Edwin
+- Edwin Geovanni Un Uicab
+- Adrian Enrique Yama Uitz
+- José Armando Jimenez Vicente
+- Jarol Gael Lizama Chan
 
 ## 📄 Licencia
 
