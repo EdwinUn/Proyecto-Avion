@@ -1,8 +1,8 @@
-# ✈️ Sistema de Gestión de Vuelos en Aeropuerto
+# Sistema de Gestión de Vuelos en Aeropuerto
 
 Un sistema completo de gestión de operaciones aeroportuarias utilizando **Colas Circulares** como estructura de datos principal para optimizar la asignación de pistas de despegue y aterrizaje.
 
-## 📋 Descripción del Proyecto
+##  Descripción del Proyecto
 
 Este proyecto implementa una simulación de aeropuerto que maneja:
 
@@ -11,7 +11,7 @@ Este proyecto implementa una simulación de aeropuerto que maneja:
 - **Interfaz Gráfica** con Tkinter para visualizar operaciones en tiempo real
 - **Simulación automática** de llegadas y salidas de vuelos
 
-## 🏗️ Estructura del Proyecto
+##  Estructura del Proyecto
 
 ```
 Aviones-Proyecto/
@@ -26,7 +26,7 @@ Aviones-Proyecto/
 └── README.md                    # Este archivo
 ```
 
-## 🎯 Características Principales
+##  Características Principales
 
 ### Backend (`backend.py`)
 
@@ -48,7 +48,7 @@ Aviones-Proyecto/
   - Simulación automática de vuelos
   - Paleta de colores moderna (tema oscuro)
 
-## 🚀 Cómo Usar
+##  Cómo Usar
 
 ### Requisitos
 
@@ -67,7 +67,7 @@ cd V2
 python "EJER1 - Colas, Bicolas.py"
 ```
 
-## 📊 Estructura de Datos
+## Estructura de Datos
 
 ### Cola Circular
 
@@ -88,7 +88,7 @@ class ColaCircular:
 - **Consultar siguiente**: O(1) - Ver próximo vuelo a procesar
 - **Operaciones**: está_llena, está_vacía
 
-## 🎨 Interfaz Visual
+## Interfaz Visual
 
 La aplicación utiliza:
 - Tema oscuro inspirado en GitHub
