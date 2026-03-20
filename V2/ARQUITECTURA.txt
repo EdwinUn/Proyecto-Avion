@@ -1,0 +1,343 @@
+================================================================================
+        ARQUITECTURA DEL SISTEMA - GESTION DE VUELOS v2.0
+================================================================================
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         STRUCT URA DE DATOS                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+                              AEROPUERTO
+                    (AeropuertoManager)
+                           |
+      _____________________|_____________________
+      |                    |                    |
+    PISTA 1              PISTA 2              PISTA 3
+ (ColaCircular)      (ColaCircular)      (ColaCircular)
+   Capacidad: 5        Capacidad: 5        Capacidad: 5
+      |                   |                   |
+   [1][2][3][ ][ ]    [4][ ][ ][ ][ ]    [ ][ ][ ][ ][ ]
+    ^              ^
+  frente           final
+    |
+ Vuelo 1 (MX001)
+   - tiempo_despegue: 2 ciclos
+   - tiempo_espera: 0 ciclos
+
+
+                        LISTA DE ESPERA
+                        (list de Vuelo)
+                    Max: 10 vuelos
+                        |
+                  [Vuelo5][Vuelo6]
+                      ^      ^
+                   1s esp  2s esp
+
+
+================================================================================
+                           CICLO DE SIMULACION
+================================================================================
+
+
+  INICIO DEL CICLO
+        |
+        | Ciclo 3 (ejemplo):
+        |
+        v
+   [1] Actualizar tiempos en pistas
+        - MX001: 2 -> 1
+        - Vuelo4: 2 -> 1
+        - Vuelo5 (espera): 3 -> 4
+        |
+        | Identificar listos (tiempo = 0)
+        | (En ciclo 3, si tiempo_despegue=3, nadie despega aun)
+        |
+        v
+   [2] Despejar vuelos listos
+        - (ninguno este ciclo)
+        |
+        v
+   [3] Mover de espera a pistas (si hay espacio)
+        - (no hay espacio disponible)
+        |
+        v
+   [4] Incrementar tiempos en espera
+        - Vuelo5: 3 -> 4 ciclos esperando
+        |
+        v
+   [5] Incrementar ciclo_actual (3 -> 4)
+        |
+        v
+  FIN DEL CICLO -> Retorna eventos
+
+
+================================================================================
+                        FLUJO DE EVENTOS EN CICLO
+================================================================================
+
+CICLO 1:
+  tiempos_despegue: 3 -> 2 en pistas
+  despegues: 0    (faltan 2 ciclos)
+  movimientos: 0  (sin espacio)
+  
+CICLO 2:
+  tiempos_despegue: 2 -> 1 en pistas
+  despegues: 0    (falta 1 ciclo)
+  movimientos: 0
+  
+CICLO 3:
+  tiempos_despegue: 1 -> 0 en pistas
+  despegues: 5    (MX001, Vuelo4, etc. despelan!)
+  movimientos: 2  (Vuelo5, Vuelo6 suben a pistas)
+  
+CICLO 4:
+  tiempos_despegue: 3 -> 2 (nuevos vuelos que subieron)
+  despegues: 0    (los nuevos necesitan 3 ciclos otra vez)
+  movimientos: 0
+
+
+================================================================================
+                           CLASES Y RESPONSABILIDADES
+================================================================================
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ VUELO                                                                    │
+├──────────────────────────────────────────────────────────────────────────┤
+│ Responsabilidades:                                                       │
+│  - Almacenar informacion del vuelo individual                           │
+│  - Gestionar tiempos propios (despegue y espera)                        │
+│  - Ser simple y portable entre pistas y espera                          │
+│                                                                          │
+│ Propiedades:                                                             │
+│  id_unico: 0, 1, 2, ...  (identificador global)                         │
+│  nombre: "MX001", "AM002"  (string)                                     │
+│  tiempo_despegue: 3  (ciclos)                                           │
+│  tiempo_espera: 0  (ciclos en lista)                                    │
+│                                                                          │
+│ Métodos clave:                                                           │
+│  reducir_tiempo_despegue() -> bool  (retorna True si listo)             │
+│  incrementar_tiempo_espera()  (aumenta 1 cada ciclo)                    │
+│  get_info() -> str  (visualizacion: "MX001\n(2s)")                      │
+└──────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ COALIRCULAR                                                              │
+├──────────────────────────────────────────────────────────────────────────┤
+│ Responsabilidades:                                                       │
+│  - Gestionar estructura circular de vuelos en PISTA                     │
+│  - Mantener punteros frente/final eficientemente                        │
+│  - Actualizar tiempos de vuelos en la pista autonomamente               │
+│                                                                          │
+│ Implementacion:                                                          │
+│  datos: array[5] con Vuelos o None                                      │
+│  frente: 0 (siguiente a salir)                                          │
+│  final: 3 (donde entra proximo)                                         │
+│  tamaño: 3 (cuantos hay)                                                │
+│                                                                          │
+│ Operaciones:                                                             │
+│  O(1): encolar(vuelo)                                                   │
+│  O(1): desencolar()                                                     │
+│  O(n): actualizar_tiempos()  [n = vuelos en pista]                      │
+│                                                                          │
+│ Particularidades:                                                        │
+│  - Circularidad: (frente + 1) % capacidad evita desperdicio             │
+│  - Evita shifts de array (vs lista simple)                              │
+│  - Actualiza tiempos in-place (eficiente)                               │
+└──────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ AEROPU ERTOMANAGER (Orquestador)                                         │
+├──────────────────────────────────────────────────────────────────────────┤
+│ Responsabilidades:                                                       │
+│  - Crear y mantener pistas                                              │
+│  - Generar nombres de vuelos                                            │
+│  - Asignar vuelos a pista menos ocupada                                 │
+│  - Gestionar lista de espera con límite                                 │
+│  - Orquestar ciclos de simulacion                                       │
+│  - Rastrear estadisticas globales                                       │
+│                                                                          │
+│ Flujo de registrar_vuelo():                                              │
+│  1. generar_nombre_vuelo() -> "MX001"                                   │
+│  2. Crear Vuelo("MX001", tiempo_despegue=3)                             │
+│  3. obtener_pista_menos_ocupada()                                       │
+│  4. Si hay pista: encolar vuelo, retornar (vuelo, pista)               │
+│  5. Si no: ¿lista_espera < max?                                         │
+│     SI -> agregar a lista, retornar (vuelo, None)                       │
+│     NO -> rechazar, total_rechazos++, retornar (vuelo, None)            │
+│                                                                          │
+│ Flujo de simular_ciclo():                                                │
+│  1. Para cada pista:                                                    │
+│     - pista.actualizar_tiempos() -> obtener listos                      │
+│  2. Despejar cada listo:                                                │
+│     - pista.desencolar()                                                │
+│     - total_despegues++                                                 │
+│  3. Para cada pista con un listo:                                       │
+│     - Si hay en lista_espera: pop(0) y encolar                          │
+│  4. Para cada vuelo en lista_espera:                                    │
+│     - incrementar_tiempo_espera()  [+1 ciclo]                           │
+│  5. ciclo_actual++, retornar eventos                                    │
+│                                                                          │
+│ Estadisticas:                                                            │
+│  total_despegues: count de vuelos que salieron                          │
+│  total_rechazos: count de vuelos rechazados (lista llena)               │
+│  ciclo_actual: numero de ciclo                                          │
+│  contador_vuelo: total generados                                        │
+└──────────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+                             PARAMETROS CONFIGURABLES
+================================================================================
+
+AeropuertoManager(
+  num_pistas=3,              Devuelve: 3 ColaCirculares
+  capacidad_pista=5,         Capacidad de cada ColaCircular
+  max_lista_espera=10,       Limite maximo de vuelos en lista_espera
+  tiempo_despegue=3          Ciclos por defecto para cada Vuelo
+)
+
+
+ESCENARIOS:
+
+[Escasez de Pistas]
+  num_pistas=1, capacidad_pista=2, max_lista_espera=5
+  -> Muchos en espera
+  -> Necesita más ciclos
+
+[Abundancia de Pistas]
+  num_pistas=5, capacidad_pista=10, max_lista_espera=20
+  -> Pocos en espera
+  -> Menos ciclos
+  -> Menos rechazos
+
+[Despegue Rápido]
+  tiempo_despegue=1
+  -> Ciclo 1: todos despelan
+
+[Despegue Lento]
+  tiempo_despegue=10
+  -> Ciclo 10: primeros despelan
+  -> Pistas saturadas
+
+
+================================================================================
+                              DIAGRAMA DE INTERACCION
+================================================================================
+
+USUARIO (Frontend/consola)
+    |
+    | registrar_vuelo()
+    v
+AeropuertoManager.registrar_vuelo()
+    |
+    +-> generar_nombre_vuelo()
+    |
+    +-> obtener_pista_menos_ocupada()
+    |       |
+    |       v
+    |   ColaCircular.encolar(vuelo)
+    |
+    +-> Si pista: retorna (vuelo, pista)
+    |
+    +-> Si no: agregar a lista_espera
+    |
+    v
+USUARIO ve: "MX001 -> Pista 1" o "MX002 -> Espera"
+
+
+USUARIO -> simular_ciclo()
+    |
+    v
+Para cada pista:
+  ColaCircular.actualizar_tiempos() -> Retorna listos
+    |
+    +-> Decrementa tiempo_despegue de cada Vuelo
+    |
+    +-> Retorna [Vuelos con tiempo <= 0]
+    |
+    v
+  Desencolar listos
+  |
+  +-> Incrementa total_despegues
+  |
+  +-> Libera espacio
+  |
+  v
+  Si hay en lista_espera:
+    |
+    +-> lista_espera.pop(0)  -> Vuelo más antiguo
+    |
+    +-> ColaCircular.encolar(vuelo)  -> Sube a pista
+    |
+    v
+Incrementar tiempo_espera en lista_espera
+
+USUARIO ve:
+  [DESPEGUE] MX001 despego
+  [MOVIMIENTO] MX002 paso de Espera -> Pista 1
+  Pista 1: 1/5  (MX002 nuevo)
+  Espera: vacia
+
+
+================================================================================
+                          OPTIMIZACION Y COMPLEJIDAD
+================================================================================
+
+Operacion              Complejidad    Por que
+────────────────────────────────────────────────────────────────────────────
+registrar_vuelo()      O(n)           n = numero de pistas (buscar menos llena)
+encolar(vuelo)         O(1)           solo incrementa punteros
+desencolar()           O(1)           solo incrementa punteros
+actualizar_tiempos()   O(c)           c = vuelos en pista (pequeño)
+simular_ciclo()        O(n*c + e)     n=pistas, c=cap, e=espera
+get_lista_espera()     O(e)           copia lista (e = vuelos en espera)
+
+
+TOTAL POR CICLO: O(3*5 + 10) = O(25) muy eficiente
+
+
+================================================================================
+                              NOTAS DE DISEÑO
+================================================================================
+
+1. ColaCircular vs lista simple:
+   - Evita desplazamientos (shift) O(n) del frente
+   - Usa punteros: mas eficiente en memoria
+   - Ideal para esta aplicacion FIFO
+
+2. Tiempo de espera dual:
+   - tiempo_despegue: reduce en ciclo (cuando está en pista)
+   - tiempo_espera: aumenta en ciclo (cuando está en espera)
+   - Permite análisis de QoS (calidad del servicio)
+
+3. FIFO en espera:
+   - Justos: primero que llega, primero que sube
+   - Implementado con pop(0): simple y correcto
+   - Alternativa: usar deque para O(1)
+
+4. Estadisticas integradas:
+   - total_despegues: KPI de throughput
+   - total_rechazos: KPI de disponibilidad
+   - ciclo_actual: timestamp lógico
+
+5. Separacion responsabilidades:
+   - Vuelo: gestiona su propio estado
+   - ColaCircular: gestiona estructura PISTA
+   - Manager: orquesta todo
+
+
+================================================================================
+                                  EXTENSIONES
+================================================================================
+
+Facilmente extensible a:
+
++ Prioridades de despegue (cambiar FIFO por priority queue)
++ Destinos (agregar campo a Vuelo)
++ Horarios (programación futura de registros)
++ Multiples tipos de pistas (pequeña, mediana, grande)
++ Estadísticas avanzadas (tiempo_promedio_espera, etc.)
++ Persistencia (guardar en BD)
++ API REST (Flask/Django)
++ Dashboard en tiempo real (WebSocket)
+

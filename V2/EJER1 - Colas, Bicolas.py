@@ -272,10 +272,16 @@ class VentanaAeropuerto(tk.Tk):
         """Registra un nuevo vuelo a través del backend"""
         vuelo, pista_asignada = self.manager.registrar_vuelo()
         
+        # Verificar si fue rechazado (lista espera llena)
+        estado_espera = len(self.manager.get_lista_espera())
+        max_espera = self.manager.max_lista_espera
+        
         if pista_asignada:
-            self._log(f"[✚] {vuelo} → {pista_asignada.nombre}", "reg")
+            self._log(f"[✚] {vuelo.nombre} → {pista_asignada.nombre} (despegue en {vuelo.tiempo_despegue}s)", "reg")
+        elif estado_espera < max_espera:
+            self._log(f"[⏳] {vuelo.nombre} → Lista de Espera (pistas llenas)", "esp")
         else:
-            self._log(f"[⏳] {vuelo} → Lista de Espera (pistas llenas)", "esp")
+            self._log(f"[✗] {vuelo.nombre} → RECHAZADO (lista de espera llena)", "err")
         
         self._refresh_all()
 
@@ -294,7 +300,7 @@ class VentanaAeropuerto(tk.Tk):
             self._log("[!] No hay vuelos en la pista seleccionada.", "err")
             return
 
-        self._log(f"[🛫] {vuelo_despegado} despegó", "dep")
+        self._log(f"[🛫] {vuelo_despegado.nombre} despegó", "dep")
 
         if vuelo_de_espera:
             pistas = self.manager.get_pistas()
@@ -304,7 +310,7 @@ class VentanaAeropuerto(tk.Tk):
                     pista_destino = p
                     break
             if pista_destino:
-                self._log(f"[→] {vuelo_de_espera} pasó de Espera → {pista_destino.nombre}", "esp")
+                self._log(f"[→] {vuelo_de_espera.nombre} pasó de Espera → {pista_destino.nombre}", "esp")
 
         self._refresh_all()
 
@@ -315,25 +321,73 @@ class VentanaAeropuerto(tk.Tk):
         self.simulacion_activa = True
         self.btn_sim.config(state="disabled", text="⚡ Simulando...")
         self._log("── Simulación Automática iniciada ──", "sim")
+        self._log("Fase 1: Registrando 15 vuelos...", "info")
         t = threading.Thread(target=self._run_simulacion, daemon=True)
         t.start()
 
     def _run_simulacion(self):
-        """Ejecuta la simulación: 15 vuelos, despega cada 3"""
+        """
+        Ejecuta la simulación: 
+        1. Registra 15 vuelos (distribuidos en varios ciclos)
+        2. Ejecuta ciclos de simulación para procesar despegues
+        """
+        # Fase 1: Registrar 15 vuelos distribuidamente
         for i in range(15):
             self.after(0, self.registrar_vuelo)
-            time.sleep(0.6)
-            # Despega uno cada 3 vuelos
-            if (i + 1) % 3 == 0:
-                self.after(0, self.despegar_vuelo)
-                time.sleep(0.4)
+            time.sleep(0.5)
+        
+        # Esperar a que se registren todos
+        time.sleep(1)
+        self.after(0, lambda: self._log("Fase 2: Ejecutando ciclos de simulación...", "info"))
+        time.sleep(0.5)
+        
+        # Fase 2: Ejecutar ciclos de simulación (máximo 20 ciclos)
+        for ciclo in range(20):
+            self.after(0, self._ejecutar_ciclo_simulacion)
+            time.sleep(1)  # 1 segundo por ciclo
+            
+            # Si no hay vuelos ni en pistas ni en espera, terminar
+            pistas = self.manager.get_pistas()
+            espera = self.manager.get_lista_espera()
+            hay_vuelos = any(not p.esta_vacia() for p in pistas) or len(espera) > 0
+            if not hay_vuelos:
+                break
+        
         self.after(0, self._fin_simulacion)
 
+    def _ejecutar_ciclo_simulacion(self):
+        """Ejecuta un ciclo de simulación y muestra eventos"""
+        evento = self.manager.simular_ciclo()
+        ciclo = evento["ciclo"]
+        
+        self._log(f"\n[⏱ Ciclo {ciclo}]", "sim")
+        
+        # Mostrar despegues
+        for vuelo in evento["despegues"]:
+            self._log(f"  [🛫] {vuelo.nombre} despegó", "dep")
+        
+        # Mostrar movimientos de espera
+        for vuelo, pista in evento["movimientos_espera"]:
+            self._log(f"  [→] {vuelo.nombre} pasó a {pista.nombre}", "esp")
+        
+        # Mostrar estado generalde espera
+        espera = self.manager.get_lista_espera()
+        if espera:
+            vuelos_espera = ", ".join([f"{v.nombre}({v.tiempo_espera}s)" for v in espera])
+            self._log(f"  ⏳ Esperando: {vuelos_espera}", "info")
+        
+        self._refresh_all()
+
     def _fin_simulacion(self):
-        """Limpia estado de simulación"""
+        """Limpia estado de simulación y muestra resumen"""
         self.simulacion_activa = False
         self.btn_sim.config(state="normal", text="⚡  Simulación Automática (15 vuelos)")
+        
+        # Resumen final
+        self._log("", "info")
         self._log("── Simulación Automática finalizada ──", "sim")
+        self._log(f"Total despegues: {self.manager.total_despegues}", "info")
+        self._log(f"Total rechazos: {self.manager.total_rechazos}", "info")
 
     # ── Refresco de UI ─────────────────────────
 
@@ -362,22 +416,25 @@ class VentanaAeropuerto(tk.Tk):
                 else:
                     es_frente = (j == frente_idx and not pista.esta_vacia())
                     color_bg = self.COLORES["frente"] if es_frente else self.COLORES["ocupado"]
+                    # Mostrar nombre y tiempo de despegue
+                    info_vuelo = vuelo.get_info()
                     celda.config(
-                        text=f"✈\n{vuelo}",
+                        text=f"✈\n{info_vuelo}",
                         bg=color_bg,
                         fg="white"
                     )
 
             sig = pista.siguiente()
+            sig_texto = f"{sig.nombre} ({sig.tiempo_despegue}s)" if sig else "—"
             info = (
                 f"Vuelos: {pista.tamaño}/{pista.capacidad}  |  "
                 f"frente={pista.frente}  final={pista.final}  |  "
-                f"Siguiente: {sig if sig else '—'}"
+                f"Siguiente: {sig_texto}"
             )
             self.lbl_info_pistas[i].config(text=info)
 
     def _refresh_espera(self):
-        """Actualiza visualización de lista de espera"""
+        """Actualiza visualización de lista de espera con tiempos"""
         # Limpiar widgets anteriores
         for w in self.espera_canvas.winfo_children():
             w.destroy()
@@ -389,19 +446,21 @@ class VentanaAeropuerto(tk.Tk):
                 font=("Courier New", 8),
                 bg=self.COLORES["panel"], fg=self.COLORES["subtexto"]
             ).pack()
-            self.lbl_espera_info.config(text="Cola de espera vacía.")
+            espacio = self.manager.max_lista_espera
+            self.lbl_espera_info.config(text=f"Cola de espera vacía ({espacio}/{self.manager.max_lista_espera} espacios disponibles).")
         else:
             fila = tk.Frame(self.espera_canvas, bg=self.COLORES["panel"])
             fila.pack(fill="x")
             for vuelo in lista_espera:
                 tk.Label(
-                    fila, text=f"✈ {vuelo}",
+                    fila, text=f"✈ {vuelo.nombre}\n({vuelo.tiempo_espera}s)",
                     font=("Courier New", 8, "bold"),
                     bg=self.COLORES["espera"], fg="white",
                     padx=6, pady=4, relief="flat"
                 ).pack(side="left", padx=3, pady=2)
+            espacio = self.manager.max_lista_espera - len(lista_espera)
             self.lbl_espera_info.config(
-                text=f"Total en espera: {len(lista_espera)} vuelo(s)"
+                text=f"Total en espera: {len(lista_espera)} vuelo(s) ({espacio} espacios disponibles)"
             )
 
     def _refresh_punteros(self):
@@ -409,11 +468,12 @@ class VentanaAeropuerto(tk.Tk):
         pistas = self.manager.get_pistas()
         lineas = []
         for pista in pistas:
-            sig = pista.siguiente() or "—"
+            sig = pista.siguiente()
+            sig_texto = f"{sig.nombre} ({sig.tiempo_despegue}s)" if sig else "—"
             lineas.append(
                 f"{pista.nombre:<8}  frente={pista.frente}  "
                 f"final={pista.final}  "
-                f"siguiente={sig}"
+                f"siguiente={sig_texto}"
             )
         self.lbl_punteros.config(text="\n".join(lineas))
 
