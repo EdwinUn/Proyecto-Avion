@@ -5,8 +5,6 @@ Interfaz gráfica con tkinter que consume backend.AeropuertoManager
 
 import tkinter as tk
 from tkinter import ttk
-import threading
-import time
 
 from backend import AeropuertoManager
 
@@ -42,7 +40,13 @@ class VentanaAeropuerto(tk.Tk):
 
         # Backend
         self.manager = AeropuertoManager()
+        
+        # Estado de simulación
         self.simulacion_activa = False
+        self.auto_ticks_activos = False
+        self.ciclo_actual = 0
+        self.velocidad_tick = 1.0
+        self.after_id = None
 
         self._build_ui()
         self._refresh_all()
@@ -203,6 +207,55 @@ class VentanaAeropuerto(tk.Tk):
         )
         self.btn_dep.pack(fill="x", padx=10, pady=4)
 
+        # ─── Controles de Ticks ───
+        tick_frame = tk.Frame(ctrl, bg=self.COLORES["panel"])
+        tick_frame.pack(fill="x", padx=10, pady=(8, 4))
+
+        # Botón Next Tick
+        self.btn_next_tick = tk.Button(
+            tick_frame, text="➡️  Next Tick",
+            bg=self.COLORES["acento"], fg="white",
+            command=self._next_tick_manual, **btn_style
+        )
+        self.btn_next_tick.pack(side="left", fill="x", expand=True, padx=(0, 4))
+
+        # Botón Auto Tick (toggle)
+        self.btn_auto_tick = tk.Button(
+            tick_frame, text="▶️  Auto Tick",
+            bg=self.COLORES["verde"], fg="white",
+            command=self._toggle_auto_ticks, **btn_style
+        )
+        self.btn_auto_tick.pack(side="left", fill="x", expand=True)
+
+        # Slider de velocidad
+        vel_frame = tk.Frame(ctrl, bg=self.COLORES["panel"])
+        vel_frame.pack(fill="x", padx=10, pady=4)
+
+        tk.Label(
+            vel_frame, text="Velocidad:",
+            font=("Courier New", 8),
+            bg=self.COLORES["panel"], fg=self.COLORES["subtexto"]
+        ).pack(side="left", padx=(0, 6))
+
+        self.slider_vel = tk.Scale(
+            vel_frame, from_=0.5, to=3.0, resolution=0.5,
+            orient="horizontal", length=180,
+            bg=self.COLORES["vacio"], fg=self.COLORES["acento"],
+            highlightthickness=0, troughcolor=self.COLORES["borde"],
+            command=self._cambiar_velocidad
+        )
+        self.slider_vel.set(1.0)
+        self.slider_vel.pack(side="left", fill="x", expand=True)
+
+        # Indicador de ciclo actual
+        self.lbl_ciclo = tk.Label(
+            ctrl, text="Ciclo: —",
+            font=("Courier New", 10, "bold"),
+            bg=self.COLORES["panel"], fg=self.COLORES["acento"],
+            anchor="center", pady=8
+        )
+        self.lbl_ciclo.pack(fill="x", padx=10)
+
         self.btn_sim = tk.Button(
             ctrl, text="⚡  Simulación Automática (15 vuelos)",
             bg=self.COLORES["btn_sim"], fg="white",
@@ -266,7 +319,124 @@ class VentanaAeropuerto(tk.Tk):
         self.log_text.tag_config("sim",  foreground=self.COLORES["acento"])
         self.log_text.tag_config("info", foreground=self.COLORES["subtexto"])
 
-    # ── Métodos de Negocio (ahora usan Backend) ────────
+    # ── Métodos de Control de Ticks (Manual/Automático) ────
+
+    def _cambiar_velocidad(self, nuevo_valor):
+        """Actualiza la velocidad de ticks automáticos"""
+        self.velocidad_tick = float(nuevo_valor)
+
+    def _next_tick_manual(self):
+        """Ejecuta un único tick manualmente"""
+        if self.auto_ticks_activos:
+            return  # No permitir ticks manuales durante automáticos
+        self._ejecutar_tick()
+
+    def _toggle_auto_ticks(self):
+        """Inicia/detiene los ticks automáticos"""
+        if self.auto_ticks_activos:
+            # Pausar ticks automáticos
+            self.auto_ticks_activos = False
+            if self.after_id:
+                self.after_cancel(self.after_id)
+                self.after_id = None
+            self.btn_auto_tick.config(text="▶️  Auto Tick", bg=self.COLORES["verde"])
+            self._log("⏸️  Ticks automáticos pausados", "info")
+        else:
+            # Iniciar ticks automáticos
+            self.auto_ticks_activos = True
+            self.btn_auto_tick.config(text="⏸️  Pausar", bg=self.COLORES["btn_dep"])
+            self.btn_next_tick.config(state="disabled")
+            self.btn_reg.config(state="disabled")
+            self.btn_dep.config(state="disabled")
+            self._log("▶️  Ticks automáticos iniciados", "sim")
+            self._programar_proximo_tick()
+
+    def _programar_proximo_tick(self):
+        """Programa el siguiente tick automático"""
+        if not self.auto_ticks_activos:
+            return
+        
+        # Milisegundos entre ticks: 1000ms / velocidad_tick
+        # velocidad = 1.0 = 1 tick/seg = 1000ms
+        # velocidad = 2.0 = 2 ticks/seg = 500ms
+        tiempo_ms = int(1000 / self.velocidad_tick)
+        
+        # Verificar si hay vuelos para procesar
+        pistas = self.manager.get_pistas()
+        espera = self.manager.get_lista_espera()
+        hay_vuelos = any(not p.esta_vacia() for p in pistas) or len(espera) > 0
+        
+        if hay_vuelos:
+            self._ejecutar_tick()
+            self.after_id = self.after(tiempo_ms, self._programar_proximo_tick)
+        else:
+            # Detener automáticamente cuando no hay vuelos
+            self._toggle_auto_ticks()
+            self._log("✅  Simulación completada (sin vuelos restantes)", "sim")
+
+    def _ejecutar_tick(self):
+        """Ejecuta un ciclo único de simulación"""
+        evento = self.manager.simular_ciclo()
+        self.ciclo_actual = evento["ciclo"]
+        
+        # Actualizar display de ciclo
+        self.lbl_ciclo.config(text=f"Ciclo: {self.ciclo_actual}")
+        
+        self._log(f"\n[⏱️  Ciclo {self.ciclo_actual}]", "sim")
+        
+        # Mostrar despegues
+        if evento["despegues"]:
+            for vuelo in evento["despegues"]:
+                self._log(f"  [🛫] {vuelo.nombre} despegó", "dep")
+        
+        # Mostrar movimientos de espera
+        if evento["movimientos_espera"]:
+            for vuelo, pista in evento["movimientos_espera"]:
+                self._log(f"  [→] {vuelo.nombre} pasó a {pista.nombre}", "esp")
+        
+        # Mostrar estado general de espera
+        espera = self.manager.get_lista_espera()
+        if espera:
+            vuelos_espera = ", ".join([f"{v.nombre}({v.tiempo_espera}s)" for v in espera])
+            self._log(f"  ⏳ Esperando: {vuelos_espera}", "info")
+        
+        self._refresh_all()
+
+    def iniciar_simulacion(self):
+        """Inicia simulación automática: registra 15 vuelos y permite ticks"""
+        if self.simulacion_activa:
+            return
+        
+        self.simulacion_activa = True
+        self.btn_sim.config(state="disabled", text="⚡ Registrando vuelos...")
+        self.btn_reg.config(state="disabled")
+        self.btn_next_tick.config(state="disabled")
+        self.btn_auto_tick.config(state="disabled")
+        
+        self._log("── Simulación Automática iniciada ──", "sim")
+        self._log("Fase 1: Registrando 15 vuelos...", "info")
+        
+        # Usar after para registrar vuelos sin bloquear UI
+        self.vuelos_a_registrar = 15
+        self._registrar_vuelos_iterativamente(0)
+
+    def _registrar_vuelos_iterativamente(self, index):
+        """Registra vuelos de forma iterativa con delays"""
+        if index < self.vuelos_a_registrar:
+            self.registrar_vuelo()
+            self.after(300, lambda: self._registrar_vuelos_iterativamente(index + 1))
+        else:
+            # Todos registrados, permitir ticks
+            self.after(500, self._habilitar_ticks_para_simulacion)
+
+    def _habilitar_ticks_para_simulacion(self):
+        """Habilita controles de ticks después de registrar vuelos"""
+        self._log("Fase 2: Sistema listo para ticks. Usa 'Next Tick' o 'Auto Tick'", "info")
+        self.btn_sim.config(state="normal", text="⚡  Simulación Automática (15 vuelos)")
+        self.btn_next_tick.config(state="normal")
+        self.btn_auto_tick.config(state="normal")
+        self.btn_reg.config(state="normal")
+        self.simulacion_activa = False
 
     def registrar_vuelo(self):
         """Registra un nuevo vuelo a través del backend"""
@@ -314,80 +484,88 @@ class VentanaAeropuerto(tk.Tk):
 
         self._refresh_all()
 
-    def iniciar_simulacion(self):
-        """Inicia simulación automática en thread separado"""
-        if self.simulacion_activa:
+    # ── Métodos de Control de Ticks (Manual/Automático) ────
+
+    def _cambiar_velocidad(self, nuevo_valor):
+        """Actualiza la velocidad de ticks automáticos"""
+        self.velocidad_tick = float(nuevo_valor)
+
+    def _next_tick_manual(self):
+        """Ejecuta un único tick manualmente"""
+        if self.auto_ticks_activos:
+            return  # No permitir ticks manuales durante automáticos
+        self._ejecutar_tick()
+
+    def _toggle_auto_ticks(self):
+        """Inicia/detiene los ticks automáticos"""
+        if self.auto_ticks_activos:
+            # Pausar ticks automáticos
+            self.auto_ticks_activos = False
+            if self.after_id:
+                self.after_cancel(self.after_id)
+                self.after_id = None
+            self.btn_auto_tick.config(text="▶️  Auto Tick", bg=self.COLORES["verde"])
+            self._log("⏸️  Ticks automáticos pausados", "info")
+        else:
+            # Iniciar ticks automáticos
+            self.auto_ticks_activos = True
+            self.btn_auto_tick.config(text="⏸️  Pausar", bg=self.COLORES["btn_dep"])
+            self.btn_next_tick.config(state="disabled")
+            self.btn_reg.config(state="disabled")
+            self.btn_dep.config(state="disabled")
+            self._log("▶️  Ticks automáticos iniciados", "sim")
+            self._programar_proximo_tick()
+
+    def _programar_proximo_tick(self):
+        """Programa el siguiente tick automático"""
+        if not self.auto_ticks_activos:
             return
-        self.simulacion_activa = True
-        self.btn_sim.config(state="disabled", text="⚡ Simulando...")
-        self._log("── Simulación Automática iniciada ──", "sim")
-        self._log("Fase 1: Registrando 15 vuelos...", "info")
-        t = threading.Thread(target=self._run_simulacion, daemon=True)
-        t.start()
+        
+        # Milisegundos entre ticks: 1000ms / velocidad_tick
+        # velocidad = 1.0 = 1 tick/seg = 1000ms
+        # velocidad = 2.0 = 2 ticks/seg = 500ms
+        tiempo_ms = int(1000 / self.velocidad_tick)
+        
+        # Verificar si hay vuelos para procesar
+        pistas = self.manager.get_pistas()
+        espera = self.manager.get_lista_espera()
+        hay_vuelos = any(not p.esta_vacia() for p in pistas) or len(espera) > 0
+        
+        if hay_vuelos:
+            self._ejecutar_tick()
+            self.after_id = self.after(tiempo_ms, self._programar_proximo_tick)
+        else:
+            # Detener automáticamente cuando no hay vuelos
+            self._toggle_auto_ticks()
+            self._log("✅  Simulación completada (sin vuelos restantes)", "sim")
 
-    def _run_simulacion(self):
-        """
-        Ejecuta la simulación: 
-        1. Registra 15 vuelos (distribuidos en varios ciclos)
-        2. Ejecuta ciclos de simulación para procesar despegues
-        """
-        # Fase 1: Registrar 15 vuelos distribuidamente
-        for i in range(15):
-            self.after(0, self.registrar_vuelo)
-            time.sleep(0.5)
-        
-        # Esperar a que se registren todos
-        time.sleep(1)
-        self.after(0, lambda: self._log("Fase 2: Ejecutando ciclos de simulación...", "info"))
-        time.sleep(0.5)
-        
-        # Fase 2: Ejecutar ciclos de simulación (máximo 20 ciclos)
-        for ciclo in range(20):
-            self.after(0, self._ejecutar_ciclo_simulacion)
-            time.sleep(1)  # 1 segundo por ciclo
-            
-            # Si no hay vuelos ni en pistas ni en espera, terminar
-            pistas = self.manager.get_pistas()
-            espera = self.manager.get_lista_espera()
-            hay_vuelos = any(not p.esta_vacia() for p in pistas) or len(espera) > 0
-            if not hay_vuelos:
-                break
-        
-        self.after(0, self._fin_simulacion)
-
-    def _ejecutar_ciclo_simulacion(self):
-        """Ejecuta un ciclo de simulación y muestra eventos"""
+    def _ejecutar_tick(self):
+        """Ejecuta un ciclo único de simulación"""
         evento = self.manager.simular_ciclo()
-        ciclo = evento["ciclo"]
+        self.ciclo_actual = evento["ciclo"]
         
-        self._log(f"\n[⏱ Ciclo {ciclo}]", "sim")
+        # Actualizar display de ciclo
+        self.lbl_ciclo.config(text=f"Ciclo: {self.ciclo_actual}")
+        
+        self._log(f"\n[⏱️  Ciclo {self.ciclo_actual}]", "sim")
         
         # Mostrar despegues
-        for vuelo in evento["despegues"]:
-            self._log(f"  [🛫] {vuelo.nombre} despegó", "dep")
+        if evento["despegues"]:
+            for vuelo in evento["despegues"]:
+                self._log(f"  [🛫] {vuelo.nombre} despegó", "dep")
         
         # Mostrar movimientos de espera
-        for vuelo, pista in evento["movimientos_espera"]:
-            self._log(f"  [→] {vuelo.nombre} pasó a {pista.nombre}", "esp")
+        if evento["movimientos_espera"]:
+            for vuelo, pista in evento["movimientos_espera"]:
+                self._log(f"  [→] {vuelo.nombre} pasó a {pista.nombre}", "esp")
         
-        # Mostrar estado generalde espera
+        # Mostrar estado general de espera
         espera = self.manager.get_lista_espera()
         if espera:
             vuelos_espera = ", ".join([f"{v.nombre}({v.tiempo_espera}s)" for v in espera])
             self._log(f"  ⏳ Esperando: {vuelos_espera}", "info")
         
         self._refresh_all()
-
-    def _fin_simulacion(self):
-        """Limpia estado de simulación y muestra resumen"""
-        self.simulacion_activa = False
-        self.btn_sim.config(state="normal", text="⚡  Simulación Automática (15 vuelos)")
-        
-        # Resumen final
-        self._log("", "info")
-        self._log("── Simulación Automática finalizada ──", "sim")
-        self._log(f"Total despegues: {self.manager.total_despegues}", "info")
-        self._log(f"Total rechazos: {self.manager.total_rechazos}", "info")
 
     # ── Refresco de UI ─────────────────────────
 
@@ -416,10 +594,11 @@ class VentanaAeropuerto(tk.Tk):
                 else:
                     es_frente = (j == frente_idx and not pista.esta_vacia())
                     color_bg = self.COLORES["frente"] if es_frente else self.COLORES["ocupado"]
-                    # Mostrar nombre y tiempo de despegue
-                    info_vuelo = vuelo.get_info()
+                    
+                    # Mostrar nombre, ciclo actual y countdown
+                    texto = f"✈\n{vuelo.nombre}\n⏱️{vuelo.tiempo_despegue}"
                     celda.config(
-                        text=f"✈\n{info_vuelo}",
+                        text=texto,
                         bg=color_bg,
                         fg="white"
                     )
@@ -428,13 +607,12 @@ class VentanaAeropuerto(tk.Tk):
             sig_texto = f"{sig.nombre} ({sig.tiempo_despegue}s)" if sig else "—"
             info = (
                 f"Vuelos: {pista.tamaño}/{pista.capacidad}  |  "
-                f"frente={pista.frente}  final={pista.final}  |  "
                 f"Siguiente: {sig_texto}"
             )
             self.lbl_info_pistas[i].config(text=info)
 
     def _refresh_espera(self):
-        """Actualiza visualización de lista de espera con tiempos"""
+        """Actualiza visualización de lista de espera con tiempos en countdown"""
         # Limpiar widgets anteriores
         for w in self.espera_canvas.winfo_children():
             w.destroy()
@@ -447,20 +625,21 @@ class VentanaAeropuerto(tk.Tk):
                 bg=self.COLORES["panel"], fg=self.COLORES["subtexto"]
             ).pack()
             espacio = self.manager.max_lista_espera
-            self.lbl_espera_info.config(text=f"Cola de espera vacía ({espacio}/{self.manager.max_lista_espera} espacios disponibles).")
+            self.lbl_espera_info.config(text=f"Cola de espera vacía ({espacio}/{self.manager.max_lista_espera} espacios).")
         else:
+            # Mostrar vuelos en espera con su tiempo actual
             fila = tk.Frame(self.espera_canvas, bg=self.COLORES["panel"])
             fila.pack(fill="x")
-            for vuelo in lista_espera:
+            for idx, vuelo in enumerate(lista_espera, 1):
                 tk.Label(
-                    fila, text=f"✈ {vuelo.nombre}\n({vuelo.tiempo_espera}s)",
+                    fila, text=f"{idx}. {vuelo.nombre}\n⏳ {vuelo.tiempo_espera}s",
                     font=("Courier New", 8, "bold"),
                     bg=self.COLORES["espera"], fg="white",
-                    padx=6, pady=4, relief="flat"
+                    padx=6, pady=4, relief="flat", justify="center"
                 ).pack(side="left", padx=3, pady=2)
             espacio = self.manager.max_lista_espera - len(lista_espera)
             self.lbl_espera_info.config(
-                text=f"Total en espera: {len(lista_espera)} vuelo(s) ({espacio} espacios disponibles)"
+                text=f"Total: {len(lista_espera)} vuelo(s) | Espacio: {espacio} disponibles"
             )
 
     def _refresh_punteros(self):
