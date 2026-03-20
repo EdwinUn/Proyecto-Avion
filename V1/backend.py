@@ -40,12 +40,6 @@ class ColaCircular:
         self.datos[self.frente] = None
         self.frente = (self.frente + 1) % self.capacidad
         self.tamaño -= 1
-        
-        # Resetear punteros si la cola quedó vacía
-        if self.esta_vacia():
-            self.frente = 0
-            self.final = 0
-        
         return vuelo
 
     def siguiente(self) -> str | None:

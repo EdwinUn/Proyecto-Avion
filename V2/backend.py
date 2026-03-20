@@ -37,12 +37,9 @@ class Vuelo:
         if self.tiempo_preparacion > 0:
             self.tiempo_preparacion -= 1
 
-    def decrementar_espera(self) -> None:
-        """Decrementa el tiempo de espera acumulado en 1 ciclo"""
-        if self.tiempo_espera_acumulado > 0:
-            self.tiempo_espera_acumulado += 1
-        else:
-            self.tiempo_espera_acumulado += 1
+    def incrementar_espera(self) -> None:
+        """Incrementa el tiempo de espera acumulado en 1 ciclo"""
+        self.tiempo_espera_acumulado += 1
 
     def esta_listo(self) -> bool:
         """Retorna True si el vuelo está listo para despegar (tiempo_preparacion == 0)"""
@@ -144,11 +141,11 @@ class ColaCircular:
             return []
         
         resultado = []
-        if self.frente <= self.final:
-            # No hay wrap-around
+        if self.frente < self.final:
+            # No hay wrap-around: [frente, frente+1, ..., final-1]
             resultado = [v for v in self.datos[self.frente:self.final] if v is not None]
         else:
-            # Hay wrap-around
+            # Hay wrap-around o queue llena: [frente, frente+1, ..., final de arreglo, inicio, ..., final-1]
             resultado = [v for v in self.datos[self.frente:] if v is not None] + \
                        [v for v in self.datos[:self.final] if v is not None]
         
@@ -329,7 +326,7 @@ class Aeropuerto:
         
         En cada ciclo:
         1. Se decrementan tiempos de preparación en todas las pistas
-        2. Se decrementan tiempos de espera en la lista general
+        2. Se incrementan tiempos de espera en la lista general
         3. Se despejan vuelos listos (tiempo_preparacion == 0)
         4. Se mueven vuelos de espera a pistas disponibles
         """
@@ -341,16 +338,19 @@ class Aeropuerto:
             "rechazos": [],
         }
         
-        # 1. Decrementar tiempos en pistas y detectar despegues
+        # 1. Decrementar tiempos en pistas
         self._decrementar_tiempos_pistas()
         
-        # 2. Permitir despegues automáticos
+        # 2. Incrementar tiempos de espera
+        self._incrementar_tiempos_espera()
+        
+        # 3. Permitir despegues automáticos
         self._procesar_despegues()
         
-        # 3. Mover vuelos de espera a pistas disponibles
+        # 4. Mover vuelos de espera a pistas disponibles
         self._mover_vuelos_espera_a_pistas()
         
-        # 4. Incrementar ciclo
+        # 5. Incrementar ciclo
         self.ciclo_actual += 1
 
     def _decrementar_tiempos_pistas(self) -> None:
@@ -359,6 +359,11 @@ class Aeropuerto:
             vuelos = pista.listar()
             for vuelo in vuelos:
                 vuelo.decrementar_preparacion()
+
+    def _incrementar_tiempos_espera(self) -> None:
+        """Incrementa el tiempo de espera de todos los vuelos en lista de espera"""
+        for vuelo in self.lista_espera:
+            vuelo.incrementar_espera()
 
     def _procesar_despegues(self) -> None:
         """
